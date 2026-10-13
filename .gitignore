@@ -1,0 +1,23 @@
+# Secrets and local configuration
+.env*
+
+# Dependencies and build output
+node_modules/
+dist/
+.vite/
+coverage/
+
+# Private/raw data and generated browser artifacts
+data/private/
+data/raw/
+test-results/
+playwright-report/
+playwright/.cache/
+OHORA_v4_NEW_PROJECT_KICKOFF/
+
+# Logs and local tooling
+*.log
+logs/
+.vercel/
+.DS_Store
+Thumbs.db
