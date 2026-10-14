@@ -5,42 +5,22 @@ import XLSX from 'xlsx';
 import { createFilteredWorkbook, EXCEL_SHEETS, filteredFilename } from '../src/export/excelExport.js';
 import { normalizeOhoraV3 } from '../src/data/normalizeOhoraV3.js';
 import { buildDashboardViewModel } from '../src/data/selectors.js';
+import { toDashboardPayload } from '../server/localSnapshotApi.js';
+import { toPublicDashboardPayload } from '../server/publicDashboard.js';
 
 const snapshotPath = new URL('../data/private/step1-response.json', import.meta.url);
 const hasSnapshot = existsSync(snapshotPath);
 
 function readSnapshot() {
   const raw = JSON.parse(readFileSync(snapshotPath, 'utf8'));
-  const model = normalizeOhoraV3(raw);
-  return {
-    meta: model.meta,
-    posts: model.posts.map((post) => ({
-      postId: post.postId, caption: post.caption, publishedAt: post.publishedAt,
-      permalink: post.permalink, isCarousel: post.isCarousel, imageCount: post.imageCount,
-      carouselChildCount: post.carouselChildCount, isDesignPost: post.isDesignPost,
-      likes: post.likes, comments: post.comments, followers: post.followers,
-      engagementRatePct: post.engagementRatePct,
-    })),
-    slides: model.slides.map((slide) => ({
-      postId: slide.postId, index: slide.index, assetId: slide.assetId,
-      imageUrl: slide.matchStatus.startsWith('matched') ? slide.imageUrl : null,
-      matchStatus: slide.matchStatus, isDesignPost: slide.isDesignPost,
-      tags: slide.tags, visualEvidence: slide.visualEvidence,
-    })),
-    dataQuality: {
-      summary: model.dataQuality.summary,
-      fieldCompleteness: model.dataQuality.fieldCompleteness,
-      warnings: model.dataQuality.warnings,
-      errors: model.dataQuality.errors,
-    },
-  };
+  return toPublicDashboardPayload(toDashboardPayload(normalizeOhoraV3(raw)));
 }
 
 function exportRowsFor(snapshot, options = {}) {
   const view = buildDashboardViewModel(snapshot, options);
-  const filters = options.tableFilters || { designOnly: false, imageOnly: false };
+  const filters = options.tableFilters || { designOnly: false, analysisOnly: false };
   return view.postsTable.rows.filter((row) => (!filters.designOnly || row.isDesignPost === true)
-    && (!filters.imageOnly || Boolean(row.thumbnail?.src)));
+    && (!filters.analysisOnly || row.slideCount > 0));
 }
 
 function roundTrip(workbook) {
@@ -55,7 +35,7 @@ test('filtered Excel export has the five approved sheets and exact filtered post
     search: '',
     dateRange,
     tableSort: { key: 'publishedAt', direction: 'desc' },
-    tableFilters: { designOnly: true, imageOnly: true },
+    tableFilters: { designOnly: true, analysisOnly: true },
   };
   const rows = exportRowsFor(snapshot, filters);
   const exported = roundTrip(createFilteredWorkbook({ snapshot, rows, filters }));
@@ -65,13 +45,13 @@ test('filtered Excel export has the five approved sheets and exact filtered post
   const posts = table('게시물');
   const images = table('이미지');
   const carousels = table('캐러셀');
-  assert.equal(posts[3].length, 13);
+  assert.equal(posts[3].length, 5);
   assert.equal(posts.length - 4, rows.length);
   assert.equal(images.length - 4, snapshot.slides.filter((slide) => rows.some((row) => row.postId === slide.postId)).length);
-  assert.deepEqual(images[3].slice(6, 12), ['Color', 'Technique', 'Texture', 'Motif', 'Season', 'Use']);
-  assert.ok(rows.every((row, index) => posts[index + 4][0] === row.postId));
+  assert.deepEqual(images[3].slice(3, 9), ['Color', 'Technique', 'Texture', 'Motif', 'Season', 'Use']);
+  assert.ok(rows.every((row, index) => posts[index + 4][0] === row.recordLabel));
   for (const row of carousels.slice(4)) {
-    const indexes = String(row[7]).split(' → ').filter(Boolean).map(Number);
+    const indexes = String(row[3]).split(' → ').filter(Boolean).map(Number);
     assert.deepEqual(indexes, indexes.slice().sort((a, b) => a - b));
   }
   for (const name of exported.SheetNames) {
@@ -80,8 +60,10 @@ test('filtered Excel export has the five approved sheets and exact filtered post
     }
   }
   const quality = table('분석 품질');
-  const orphanRow = quality.find((row) => row[1] === 'Unmatched source image assets');
-  assert.equal(orphanRow[2], snapshot.dataQuality.summary.unmatchedAssetCount);
+  const publicScopeRow = quality.find((row) => row[1] === 'Original IDs, captions, images, links, visual evidence');
+  assert.equal(publicScopeRow[2], 'Omitted');
+  assert.equal(posts[3].some((header) => /caption|permalink|likes|followers|engagement/i.test(header)), false);
+  assert.equal(images[3].some((header) => /asset|url|evidence/i.test(header)), false);
 });
 
 test('empty filters still produce all five header-only worksheets and a safe filename', { skip: !hasSnapshot }, () => {
@@ -89,7 +71,7 @@ test('empty filters still produce all five header-only worksheets and a safe fil
   const workbook = roundTrip(createFilteredWorkbook({
     snapshot,
     rows: [],
-    filters: { search: 'no match', dateRange: { from: '2026-10-02', to: '2026-10-02' }, tableFilters: { designOnly: true, imageOnly: true } },
+    filters: { search: 'no match', dateRange: { from: '2026-10-02', to: '2026-10-02' }, tableFilters: { designOnly: true, analysisOnly: true } },
   }));
   assert.deepEqual(workbook.SheetNames, EXCEL_SHEETS);
   for (const name of ['게시물', '이미지', '캐러셀']) {
@@ -104,20 +86,15 @@ test('empty filters still produce all five header-only worksheets and a safe fil
   assert.equal(filteredFilename([]), 'OHORA_Nail_Intelligence_no-matching-posts.xlsx');
 });
 
-test('formula-looking captions stay literal text in the workbook', { skip: !hasSnapshot }, () => {
+test('public workbook does not include source captions or original identifiers', { skip: !hasSnapshot }, () => {
   const snapshot = readSnapshot();
-  const unsafePost = snapshot.posts[0];
-  unsafePost.caption = '=HYPERLINK("https://example.invalid","open")';
-  const row = buildDashboardViewModel(snapshot).postsTable.rows.find((item) => item.postId === unsafePost.postId);
-  const workbook = roundTrip(createFilteredWorkbook({ snapshot, rows: [row], filters: { search: '', tableSort: { key: 'publishedAt', direction: 'desc' } } }));
-  const postSheet = workbook.Sheets['게시물'];
-  const values = XLSX.utils.sheet_to_json(postSheet, { header: 1, defval: '' });
-  const outputRowIndex = values.findIndex((output, index) => index >= 4 && output[0] === unsafePost.postId);
-  assert.ok(outputRowIndex >= 4);
-  const captionCell = postSheet[`F${outputRowIndex + 1}`];
-  assert.equal(captionCell.t, 's');
-  assert.equal(captionCell.v, unsafePost.caption);
-  assert.equal(captionCell.f, undefined);
+  const rows = buildDashboardViewModel(snapshot).postsTable.rows;
+  const workbook = roundTrip(createFilteredWorkbook({ snapshot, rows, filters: { search: '', tableSort: { key: 'publishedAt', direction: 'desc' } } }));
+  const posts = XLSX.utils.sheet_to_json(workbook.Sheets['게시물'], { header: 1, defval: '' });
+  assert.equal(posts[3].includes('Instagram permalink'), false);
+  assert.equal(posts[3].includes('Caption'), false);
+  assert.equal(posts[3].includes('Post ID'), false);
+  assert.match(posts[4][0], /^Observation \d{3}$/);
 });
 
 test('invalid export inputs fail closed before workbook creation', () => {

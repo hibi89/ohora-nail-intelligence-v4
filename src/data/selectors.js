@@ -248,9 +248,10 @@ function buildPostRows(model, posts, slides) {
       || null;
     const colors = [...new Set(postSlides.flatMap((slide) => slide.tags.color))];
     const tags = uniqueTags(postSlides, TAG_CATEGORIES.filter((category) => category !== 'color'));
-    const platform = verifiedPlatformFromPermalink(post.permalink);
+    const platform = post.platform === 'Instagram' ? 'Instagram' : verifiedPlatformFromPermalink(post.permalink);
     return {
       postId: post.postId,
+      recordLabel: typeof post.recordLabel === 'string' ? post.recordLabel : null,
       publishedAt: post.publishedAt,
       explicitPlatform: post.explicitPlatform,
       platform,

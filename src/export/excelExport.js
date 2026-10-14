@@ -29,8 +29,8 @@ function filterSummary(filters, timeZone, rowCount) {
   const search = safeText(filters.search).replace(/[\r\n]+/g, ' ').slice(0, 160);
   return [
     `Filtered export · ${rowCount} posts · time zone ${timeZone}`,
-    `Search: ${search || '(none)'} | Date: ${range.from || 'open'} to ${range.to || 'open'} | Design posts only: ${tableFilters.designOnly ? 'Yes' : 'No'} | Matched thumbnail only: ${tableFilters.imageOnly ? 'Yes' : 'No'} | Sort: ${filters.tableSort?.key || 'publishedAt'} ${filters.tableSort?.direction || 'desc'}`,
-    'Selection checkboxes do not limit exports. Every sheet uses the same filtered post set; slide rows retain original carousel index order.',
+    `Search: ${search || '(none)'} | Date: ${range.from || 'open'} to ${range.to || 'open'} | Design posts only: ${tableFilters.designOnly ? 'Yes' : 'No'} | AI slide analysis only: ${tableFilters.analysisOnly ? 'Yes' : 'No'} | Sort: ${filters.tableSort?.key || 'publishedAt'} ${filters.tableSort?.direction || 'desc'}`,
+    'Selection checkboxes do not limit exports. Every sheet uses the same filtered observation set; AI slide rows retain their original index order.',
   ];
 }
 
@@ -57,8 +57,7 @@ function insightRows(view) {
     ['KPI', 'Observed design slides', view.kpis.find((item) => item.id === 'design-slides')?.value ?? 0, '', '', '', '', 'AI slides classified as design.'],
     ['KPI', 'Observed colors', view.kpis.find((item) => item.id === 'active-colors')?.value ?? 0, '', '', '', '', 'Distinct color labels on design slides.'],
     ['KPI', 'Classified tag types', view.kpis.find((item) => item.id === 'top-tags')?.value ?? 0, '', '', '', '', 'Distinct category-qualified tags across six dimensions.'],
-    ['Engagement', 'Mean reported engagement rate (%)', view.engagement.simpleMeanPct ?? '', '', view.engagement.simpleMeanSampleSize, '', view.engagement.simpleMeanEligiblePostCount, 'Simple mean of non-null source per-post rates; not recomputed.'],
-    ['Engagement', 'Weighted interactions / followers (%)', view.engagement.weightedPct ?? '', view.engagement.weightedNumerator, view.engagement.weightedDenominator, '', view.engagement.weightedSampleSize, 'Sum(likes + comments) / sum(followers) × 100 for eligible posts.'],
+    ['Publication scope', 'Source-level content and engagement', 'Omitted', '', '', '', '', 'Public exports contain anonymous dates, AI labels, and aggregate calculations only.'],
   ];
   for (const combination of view.trendingDesigns.rankedCombinations) {
     rows.push(['Trending design', combination.title, combination.observedSlideCount, combination.support.numerator, combination.support.denominator, combination.support.denominator ? combination.observedSlideCount / combination.support.denominator * 100 : '', '', 'Observed combination frequency among eligible design slides; not growth.']);
@@ -76,78 +75,49 @@ function postRows(posts, slides, rows) {
   return posts.map((post) => {
     const row = rowById.get(post.postId);
     return [
-      post.postId,
+      post.recordLabel || 'Anonymous observation',
       dateKeyInTimeZone(post.publishedAt, 'Asia/Seoul') || '',
-      post.publishedAt || '',
       row?.platform || '',
-      post.permalink || '',
-      safeText(post.caption),
       displayBoolean(post.isDesignPost),
-      countValue(post.likes),
-      countValue(post.comments),
-      countValue(post.followers),
-      countValue(post.engagementRatePct),
-      countValue(post.imageCount),
-      (slideCountByPost.get(post.postId) || 0),
+      slideCountByPost.get(post.postId) || 0,
     ];
   });
 }
 
-function imageRows(slides) {
+function imageRows(slides, posts) {
+  const labels = new Map(posts.map((post) => [post.postId, post.recordLabel || 'Anonymous observation']));
   return slides.map((slide) => [
-    slide.postId,
+    labels.get(slide.postId) || 'Unlinked analysis record',
     countValue(slide.index),
-    slide.assetId || '',
-    slide.matchStatus || 'unknown',
-    slide.imageUrl || '',
     displayBoolean(slide.isDesignPost),
     ...Object.keys(CATEGORY_HEADERS).map((category) => (slide.tags?.[category] || []).join('; ')),
-    slide.visualEvidence ? JSON.stringify(slide.visualEvidence) : '',
   ]);
 }
 
 function carouselRows(posts, slides) {
   const byPost = new Map();
   for (const slide of slides) byPost.set(slide.postId, [...(byPost.get(slide.postId) || []), slide]);
-  return posts.filter((post) => {
-    const postSlides = byPost.get(post.postId) || [];
-    return post.isCarousel === true || (post.imageCount ?? 0) > 1 || (post.carouselChildCount ?? 0) > 1 || postSlides.length > 1;
-  }).map((post) => {
+  return posts.filter((post) => (byPost.get(post.postId) || []).length > 1).map((post) => {
     const ordered = (byPost.get(post.postId) || []).slice().sort((a, b) => (a.index ?? Number.MAX_SAFE_INTEGER) - (b.index ?? Number.MAX_SAFE_INTEGER));
     return [
-      post.postId,
-      post.publishedAt || '',
-      displayBoolean(post.isCarousel),
-      countValue(post.imageCount),
-      countValue(post.carouselChildCount),
+      post.recordLabel || 'Anonymous observation',
+      dateKeyInTimeZone(post.publishedAt, 'Asia/Seoul') || '',
       ordered.length,
-      ordered.filter((slide) => slide.matchStatus?.startsWith('matched')).length,
       ordered.map((slide) => slide.index ?? '').join(' → '),
-      ordered.map((slide) => slide.assetId || '').join(' | '),
-      ordered.map((slide) => slide.matchStatus || 'unknown').join(' | '),
     ];
   });
 }
 
 function qualityRows(snapshot, posts, slides, view, originalPostCount) {
-  const snapshotSummary = snapshot.dataQuality?.summary || {};
   const rows = [
-    ['Filtered scope', 'Posts in current export', posts.length, originalPostCount, 'Post table filters applied after global search and date filters.'],
+    ['Filtered scope', 'Anonymous observations in current export', posts.length, originalPostCount, 'Table filters applied after global search and date filters.'],
     ['Filtered scope', 'AI slide rows in current export', slides.length, snapshot.slides.length, 'Every selected post contributes all of its AI slide records.'],
-    ['Filtered scope', 'Exact matched slide rows', slides.filter((slide) => slide.matchStatus === 'matched').length, slides.length, 'An exact post ID + slide index + URL match is required.'],
     ['Filtered scope', 'Design-classified slide rows', slides.filter((slide) => slide.isDesignPost === true).length, slides.length, 'Slide-level AI classification.'],
-    ['Filtered scope', 'Posts with a verified Instagram permalink', posts.filter((post) => view.postsTable.rows.find((row) => row.postId === post.postId)?.platform === 'Instagram').length, posts.length, 'HTTPS URL on an Instagram host with a recognized post route.'],
-    ['Completeness', 'Likes missing', posts.filter((post) => post.likes == null).length, posts.length, 'Blank values are preserved; no imputation.'],
-    ['Completeness', 'Comments missing', posts.filter((post) => post.comments == null).length, posts.length, 'Blank values are preserved; no imputation.'],
-    ['Completeness', 'Followers missing', posts.filter((post) => post.followers == null).length, posts.length, 'Blank values are preserved; no imputation.'],
-    ['Completeness', 'Reported engagement rate missing', posts.filter((post) => post.engagementRatePct == null).length, posts.length, 'The source metric is kept distinct from the weighted calculation.'],
-    ['Completeness', 'Explicit source platform field missing', posts.filter((post) => !post.explicitPlatform).length, posts.length, 'Displayed platform may still be derived from a verified permalink.'],
-    ['Completeness', 'Shares missing / unavailable', posts.length, posts.length, 'Shares are not present in the approved data contract.'],
+    ['Publication scope', 'Original IDs, captions, images, links, visual evidence', 'Omitted', '', 'These source-level fields are not included in the public export.'],
+    ['Publication scope', 'Likes, comments, followers, engagement rates', 'Omitted', '', 'Per-post source metrics are not included in the public export.'],
+    ['Filtered scope', 'Observations with a verified platform label', posts.filter((post) => view.postsTable.rows.find((row) => row.postId === post.postId)?.platform === 'Instagram').length, posts.length, 'Only the platform label is retained; the source URL is omitted.'],
     ['Metric basis', 'Combination eligible denominator', view.combinationTrends.denominator, view.combinationTrends.designSlideCount, 'Design slides with at least two populated dimensions among color, technique, and motif.'],
     ['Metric basis', 'Design slides excluded from combinations', view.combinationTrends.unclassifiedDesignSlideCount, view.combinationTrends.designSlideCount, 'Insufficient combination dimensions; excluded from the donut denominator.'],
-    ['Metric basis', 'Engagement reported-rate sample size', view.engagement.simpleMeanSampleSize, posts.length, 'Non-null source engagement rates included in the simple mean.'],
-    ['Metric basis', 'Weighted engagement eligible post count', view.engagement.weightedSampleSize, posts.length, 'Requires likes, comments, and a positive follower count.'],
-    ['Snapshot integrity (global)', 'Unmatched source image assets', countValue(snapshotSummary.unmatchedAssetCount), countValue(snapshotSummary.imageAssetCount), 'Global snapshot count. Unmatched source asset URLs are not included in the export.'],
   ];
   const issueLists = [
     ...(snapshot.dataQuality?.errors || []).map((issue) => ['Snapshot quality error', issue.code, issue.count, '', issue.message]),
@@ -158,9 +128,9 @@ function qualityRows(snapshot, posts, slides, view, originalPostCount) {
 
 const SHEET_DEFINITIONS = [
   { name: EXCEL_SHEETS[0], headers: ['Section', 'Metric / combination', 'Value / count', 'Numerator', 'Denominator', 'Share (%)', 'Sample size', 'Definition / notes'] },
-  { name: EXCEL_SHEETS[1], headers: ['Post ID', 'Published date (Asia/Seoul)', 'Published timestamp (UTC)', 'Platform', 'Instagram permalink', 'Caption', 'Post is design', 'Likes', 'Comments', 'Followers', 'Reported engagement rate (%)', 'Source image count', 'AI slide count'] },
-  { name: EXCEL_SHEETS[2], headers: ['Post ID', 'Original slide index', 'Matched image asset ID', 'Image match status', 'Matched image URL', 'Slide is design', ...Object.values(CATEGORY_HEADERS), 'Visual evidence (JSON)'] },
-  { name: EXCEL_SHEETS[3], headers: ['Post ID', 'Published timestamp (UTC)', 'Source is carousel', 'Source image count', 'Carousel child count', 'AI slide count', 'Exactly matched slides', 'Original slide order', 'Matched asset IDs in slide order', 'Match statuses in slide order'] },
+  { name: EXCEL_SHEETS[1], headers: ['Anonymous observation', 'Published date (Asia/Seoul)', 'Verified platform label', 'AI design classification', 'AI slide count'] },
+  { name: EXCEL_SHEETS[2], headers: ['Anonymous observation', 'Original AI slide index', 'AI design classification', ...Object.values(CATEGORY_HEADERS)] },
+  { name: EXCEL_SHEETS[3], headers: ['Anonymous observation', 'Published date (Asia/Seoul)', 'AI slide count', 'Original AI slide order'] },
   { name: EXCEL_SHEETS[4], headers: ['Section', 'Check / metric', 'Observed', 'Denominator / snapshot reference', 'Definition / notes'] },
 ];
 
@@ -187,7 +157,7 @@ export function createFilteredWorkbook({ snapshot, rows, filters, timeZone = 'As
   const allRows = [
     insightRows(view),
     postRows(posts, slides, rows),
-    imageRows(slides),
+    imageRows(slides, posts),
     carouselRows(posts, slides),
     qualityRows(snapshot, posts, slides, view, snapshot.posts.length),
   ];

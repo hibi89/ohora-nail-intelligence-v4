@@ -1,45 +1,43 @@
 # OHORA Nail Intelligence v4
 
-React + Vite dashboard for the verified OHORA v3 analysis snapshot. The hosted dashboard keeps the reviewed UI and real snapshot data, while requiring a time-limited access code before the browser can request any analysis data.
+React + Vite dashboard for a verified OHORA v3 analysis snapshot. The coach-review URL opens without an access-code screen and exposes only an anonymized, data-minimized analysis view.
 
-## Data handling
+## Public data scope
 
-- The original response at `data/private/step1-response.json` is deliberately excluded from Git and Vercel source uploads, and is not sent to Vercel.
-- Production data is stored only as the already validated dashboard allowlist, Brotli-compressed and base64-encoded in the Vercel **Secret** environment variable `OHORA_DASHBOARD_BR_BASE64`. A Vercel Node.js function loads this allowlist only after session authentication. The raw response envelope and unrelated source fields are not deployed.
-- `OHORA_PASSWORD_HASH` contains a salted scrypt verifier, not the access code. `OHORA_SESSION_SECRET` signs an eight-hour, HttpOnly, Secure, SameSite=Strict session cookie. Set all three as Secret Production environment variables; never put their values in Git, static assets, or browser variables.
-- The authorized browser response contains the dashboard fields, matched post image URLs, captions, permalinks, metrics, and visual evidence that the existing UI uses. Do not share the access code beyond the intended reviewer.
-- The deployment does not connect to `dashboard2`, n8n, or an analysis API. It uses the approved snapshot only; it does not refresh the data.
+The public `GET /api/ohora-dashboard` response contains anonymous observation labels, dates rounded to the Asia/Seoul calendar day, a verified platform label, AI design classifications, original AI slide indexes, and six AI tag dimensions. Dashboard KPIs and charts are calculated from those fields.
+
+The public response and Excel export omit source post IDs, captions, original timestamps, permalinks, source image and asset URLs, visual evidence, likes, comments, follower counts, and per-post engagement rates. The four aggregate KPIs remain data-derived: 24 observations, 87 design-classified slides, 18 color labels, and 58 category-qualified tag types. Engagement is marked as not published.
+
+The Vercel function reads the compressed snapshot from the server-only `OHORA_DASHBOARD_BR_BASE64` environment variable and applies the public allowlist before returning JSON. The original `data/private/step1-response.json` is excluded from Git and Vercel source uploads. The previously configured login-related Vercel secrets were not read or deleted; they are unused by the passwordless dashboard code.
+
+This field reduction minimizes public source-content exposure. It does not establish a license for the underlying source material or AI-derived labels; confirm publication rights with the project owner before reusing the analysis elsewhere.
 
 ## Run locally
 
-Requirements: Node.js and npm compatible with Vite 7.
+Requirements: Node.js 24 and npm compatible with Vite 7.
 
 ```powershell
 npm ci
 New-Item -ItemType Directory -Force data/private
-# Save the separately supplied, authorized snapshot as data/private/step1-response.json
+# Save the separately supplied snapshot as data/private/step1-response.json
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173/`. The Vite development server exposes a loopback-only, GET-only `GET /api/ohora-dashboard` endpoint. It reads the local private snapshot on the server and returns the normalized dashboard allowlist. Without the local snapshot, the dashboard shows a data-unavailable state.
+Open `http://127.0.0.1:5173/`. The Vite development server exposes a loopback-only, GET-only API which reads the private local snapshot. Local development keeps its complete validated fields; only the hosted Vercel route applies the public projection.
 
 ## Hosted deployment
 
-The Vercel project uses the private GitHub repository `hibi89/ohora-nail-intelligence-v4`. Vercel's Node.js functions in `api/` provide the authenticated production API. Configure the three Sensitive Production environment variables above before promoting a production deployment. The access password is generated separately and its salted hash is configured as `OHORA_PASSWORD_HASH`; only the reviewer receives the password.
+The Vercel project uses the private GitHub repository `hibi89/ohora-nail-intelligence-v4`. Pushes to `main` trigger the linked Production deployment. The Vercel dashboard URL is public and does not require a password. Its server function does not connect to `dashboard2`, n8n, or an analysis API; it uses the existing server-side snapshot and does not refresh the data.
 
-The hosted source does not contain the private JSON. `.vercelignore` excludes `data/private/`, `data/raw/`, `.env*`, and local build/test output as a second safeguard. The dashboard API is GET-only, sends `Cache-Control: private, no-store`, and exposes no unauthenticated data. Login requires a same-origin HTTPS POST.
+## Verified MVP features
 
-## Verified MVP
+- KPI cards, observed design combinations, colors and tag analysis.
+- Search over public AI labels, Asia/Seoul date filters, design and AI-slide filters, and date sorting.
+- Three Analysis Overview tabs, design and observation details, and five-sheet Excel export using the same filtered public data.
+- Verified platform label without publishing the source permalink.
+- Original AI slide indexes retained in anonymous observation order; original source images are not returned or exported.
 
-- Data-backed KPI cards, observed designs and combinations, color/tag analysis, and overview charts.
-- Search, Asia/Seoul date filtering, post filters, sorting, and post detail modal.
-- Five-sheet Excel export based on the current filtered result.
-- Platform labeling based on validated Instagram permalink routes.
-- Exact carousel slide-index/image matching and data-quality reporting.
-
-The reviewed snapshot contains 24 unique posts, 97 AI-analyzed image slides, 87 design-classified slides, 18 distinct design color labels, and 58 classified tag types. These are counts from the observed snapshot, not live or historical trend claims.
-
-Social Monitoring, Saved Collections, notifications, user accounts, live refresh, and historical period comparisons are not implemented.
+Social Monitoring, Saved Collections, notifications, user accounts, live refresh, historical period comparisons, and source engagement metrics are not part of the public MVP.
 
 ## Checks
 
@@ -49,4 +47,4 @@ npm run verify:step2
 npm run build
 ```
 
-`npm run verify:step2` requires the private local snapshot. Unit tests and the production build do not publish or include that local file.
+`npm run verify:step2` requires the ignored local snapshot. Tests and the production build do not copy that private file into `dist/`.

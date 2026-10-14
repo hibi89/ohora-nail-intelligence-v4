@@ -15,6 +15,7 @@ function dayNumber(value) {
 function TrendChart({ overview }) {
   const [activeDate, setActiveDate] = useState(null);
   const points = overview.trend.points;
+  const hasEngagement = points.some((point) => point.engagementMeanPct != null);
   const geometry = useMemo(() => {
     if (!points.length) return null;
     const days = points.map((point) => dayNumber(point.date));
@@ -58,13 +59,13 @@ function TrendChart({ overview }) {
         <div className="chart-tooltip" role="status">
           <strong>{activePoint.date}</strong>
           <span><i className="legend-dot legend-dot--rose" />AI tag mentions · {activePoint.tagMentionCount}</span>
-          <span><i className="legend-dot legend-dot--cocoa" />Mean engagement · {activePoint.engagementMeanPct == null ? '—' : `${activePoint.engagementMeanPct.toFixed(2)}%`} ({activePoint.engagementSampleSize} posts)</span>
+          {hasEngagement && <span><i className="legend-dot legend-dot--cocoa" />Mean engagement · {activePoint.engagementMeanPct == null ? '—' : `${activePoint.engagementMeanPct.toFixed(2)}%`} ({activePoint.engagementSampleSize} posts)</span>}
         </div>
       )}
-      <svg className="trend-chart" viewBox="0 0 460 170" role="img" aria-label="Observed AI tag mentions and mean post engagement by observed Seoul calendar date">
+      <svg className="trend-chart" viewBox="0 0 460 170" role="img" aria-label={hasEngagement ? 'Observed AI tag mentions and mean post engagement by observed Seoul calendar date' : 'Observed AI tag mentions by observed Seoul calendar date'}>
         {yTicks.map((ratio) => {
           const y = chartBottom - ratio * (chartBottom - chartTop - 8);
-          return <g key={ratio}><line x1={chartLeft} x2={chartRight} y1={y} y2={y} className="chart-gridline" /><text x="34" y={y + 4} textAnchor="end" className="chart-axis-label">{Math.round(geometry.maxMentions * ratio)}</text><text x="452" y={y + 4} textAnchor="start" className="chart-axis-label">{(geometry.maxEngagement * ratio).toFixed(ratio === 0 ? 0 : 1)}%</text></g>;
+          return <g key={ratio}><line x1={chartLeft} x2={chartRight} y1={y} y2={y} className="chart-gridline" /><text x="34" y={y + 4} textAnchor="end" className="chart-axis-label">{Math.round(geometry.maxMentions * ratio)}</text>{hasEngagement && <text x="452" y={y + 4} textAnchor="start" className="chart-axis-label">{(geometry.maxEngagement * ratio).toFixed(ratio === 0 ? 0 : 1)}%</text>}</g>;
         })}
         {points.map((point) => {
           const x = geometry.xFor(point);
@@ -155,7 +156,9 @@ export function AnalysisOverview({ overview, onTabChange }) {
         {overview.activeTab === 'trend-analysis' && (
           <div className="chart-legend">
             <span><i className="legend-dot legend-dot--rose" />AI tag mentions</span>
-            <span><i className="legend-dot legend-dot--cocoa" />Mean engagement</span>
+            {overview.trend.points.some((point) => point.engagementMeanPct != null)
+              ? <span><i className="legend-dot legend-dot--cocoa" />Mean engagement</span>
+              : <span>Source engagement metrics are omitted from this public view.</span>}
           </div>
         )}
         <Panel overview={overview} />
