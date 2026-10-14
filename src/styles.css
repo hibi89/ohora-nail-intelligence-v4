@@ -374,6 +374,13 @@ button:focus-visible, input:focus-visible, a:focus-visible, [tabindex="0"]:focus
 .error-icon { display: grid; width: 42px; height: 42px; margin-bottom: 17px; place-items: center; border-radius: 50%; background: #f6e6dd; color: #9c674f; }
 .error-card .error-hint { margin: 10px 0 20px; line-height: 1.6; }
 .error-card .button { min-height: 38px; padding: 0 15px; }
+.auth-card > p { margin-top: 4px; line-height: 1.6; }
+.auth-form { display: grid; width: 100%; margin-top: 21px; gap: 9px; }
+.auth-form label { color: #5b473b; font-size: 11px; font-weight: 600; }
+.auth-form input { width: 100%; min-height: 42px; padding: 0 12px; border: 1px solid #e4d6cc; border-radius: 8px; outline: none; background: #fff; color: #36271f; font: 12px 'DM Sans', sans-serif; }
+.auth-form input:focus { border-color: #aa7b62; box-shadow: 0 0 0 3px rgb(170 123 98 / 12%); }
+.auth-form .button { justify-self: start; margin-top: 5px; }
+.auth-feedback { margin-top: 12px !important; color: #795440 !important; }
 
 @media (max-width: 1380px) and (min-width: 761px) {
   :root { --sidebar-width: 76px; }

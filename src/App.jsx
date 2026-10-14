@@ -26,11 +26,14 @@ const MENU_TARGETS = {
 };
 
 function LoadingScreen() {
-  return <div className="state-page"><div className="loading-mark"><span className="loading-spark"><Icon name="sparkles" size={22} /></span><div><span className="eyebrow">OHORA · LOCAL DATA</span><h1>Preparing your nail intelligence</h1><p>Validating the private analysis snapshot…</p></div><span className="loading-spinner" aria-label="Loading" /></div></div>;
+  return <div className="state-page"><div className="loading-mark"><span className="loading-spark"><Icon name="sparkles" size={22} /></span><div><span className="eyebrow">OHORA · PRIVATE DATA</span><h1>Preparing your nail intelligence</h1><p>Validating the private analysis snapshot…</p></div><span className="loading-spinner" aria-label="Loading" /></div></div>;
 }
 
-function ErrorScreen({ message, onRetry }) {
-  return <div className="state-page"><section className="error-card" role="alert"><span className="error-icon"><Icon name="info" size={21} /></span><span className="eyebrow">LOCAL DATA UNAVAILABLE</span><h1>We couldn’t load the analysis</h1><p>{message}</p><p className="error-hint">The dashboard reads only the private snapshot through its local development API. Check that the snapshot exists and try again.</p><button type="button" className="button button--primary" onClick={onRetry}>Try again</button></section></div>;
+function ErrorScreen({ message, code, authPending, authFeedback, onLogin, onRetry }) {
+  if (code === 'auth-required') {
+    return <div className="state-page"><section className="error-card auth-card" aria-labelledby="auth-title"><span className="error-icon"><Icon name="info" size={21} /></span><span className="eyebrow">AUTHORIZED ACCESS</span><h1 id="auth-title">OHORA Nail Intelligence</h1><p>Enter the access code shared with you to open the verified analysis dashboard.</p><form className="auth-form" onSubmit={(event) => { event.preventDefault(); onLogin(new FormData(event.currentTarget).get('accessCode')); }}><label htmlFor="access-code">Access code</label><input id="access-code" name="accessCode" type="password" autoComplete="current-password" required minLength={24} disabled={authPending} /><button type="submit" className="button button--primary" disabled={authPending}>{authPending ? 'Checking…' : 'Continue'}</button></form>{authFeedback && <p className="auth-feedback" role="status">{authFeedback}</p>}</section></div>;
+  }
+  return <div className="state-page"><section className="error-card" role="alert"><span className="error-icon"><Icon name="info" size={21} /></span><span className="eyebrow">ANALYSIS DATA UNAVAILABLE</span><h1>We couldn’t load the analysis</h1><p>{message}</p><p className="error-hint">The private dashboard service could not validate or load its analysis snapshot. Retry or contact the project owner.</p><button type="button" className="button button--primary" onClick={onRetry}>Try again</button></section></div>;
 }
 
 function SearchBox({ value, onChange }) {
@@ -74,7 +77,7 @@ function TopBar({ search, onSearch, range, fullRange, onRangeChange, meta, warni
     <header className="topbar">
       <SearchBox value={search} onChange={onSearch} />
       <div className="topbar-right">
-        <span className={`header-data-status ${meta.stale || meta.demo ? 'is-warning' : ''}`} title={`${warningCount} data quality notices`}><i />{meta.stale ? 'Stale source' : meta.demo ? 'Demo data' : 'Local snapshot'} <small>{warningCount} notices</small></span>
+        <span className={`header-data-status ${meta.stale || meta.demo ? 'is-warning' : ''}`} title={`${warningCount} data quality notices`}><i />{meta.stale ? 'Stale source' : meta.demo ? 'Demo data' : meta.hosted ? 'Authorized snapshot' : 'Local snapshot'} <small>{warningCount} notices</small></span>
         <div className="date-anchor">
           <button type="button" className="date-trigger" aria-expanded={dateOpen} onClick={() => setDateOpen(!dateOpen)}><Icon name="calendar" size={17} /><span>{formatDateRange(range)}</span><Icon name="chevron" size={14} /></button>
           {dateOpen && <DateRangePopover range={range} fullRange={fullRange} onApply={onRangeChange} onClose={() => setDateOpen(false)} />}
@@ -85,7 +88,7 @@ function TopBar({ search, onSearch, range, fullRange, onRangeChange, meta, warni
         </div>
         <div className="popover-anchor profile-anchor">
           <button type="button" className="profile-trigger" aria-expanded={profileOpen} onClick={() => setProfileOpen(!profileOpen)}><span className="profile-avatar">OH</span><span className="profile-name">Workspace</span><Icon name="chevron" size={14} /></button>
-          {profileOpen && <div className="small-popover profile-popover"><strong>Local workspace</strong><p>{updatedAt ? `Source updated ${updatedAt}` : 'Using the private analysis snapshot.'}</p><span className="local-only-pill">LOCAL ONLY</span></div>}
+          {profileOpen && <div className="small-popover profile-popover"><strong>{meta.hosted ? 'Authorized workspace' : 'Local workspace'}</strong><p>{updatedAt ? `Source updated ${updatedAt}` : 'Using the private analysis snapshot.'}</p><span className="local-only-pill">{meta.hosted ? 'SECURE ACCESS' : 'LOCAL ONLY'}</span></div>}
         </div>
       </div>
     </header>
@@ -148,6 +151,8 @@ function CombinationMethodDialog({ model, onClose }) {
 export function App() {
   const [loadState, setLoadState] = useState({ status: 'loading', data: null, message: '' });
   const [reloadKey, setReloadKey] = useState(0);
+  const [authPending, setAuthPending] = useState(false);
+  const [authFeedback, setAuthFeedback] = useState('');
   const [search, setSearch] = useState('');
   const [dateRange, setDateRange] = useState(null);
   const [selectedOverviewTab, setSelectedOverviewTab] = useState('trend-analysis');
@@ -168,7 +173,7 @@ export function App() {
     fetchDashboardData(controller.signal).then((data) => {
       if (!controller.signal.aborted) setLoadState({ status: 'ready', data, message: '' });
     }).catch((error) => {
-      if (!controller.signal.aborted) setLoadState({ status: 'error', data: null, message: error.message || 'The local snapshot could not be loaded.' });
+      if (!controller.signal.aborted) setLoadState({ status: 'error', data: null, code: error.code, message: error.message || 'The private snapshot could not be loaded.' });
     });
     return () => controller.abort();
   }, [reloadKey]);
@@ -223,8 +228,34 @@ export function App() {
     setDownloadState((current) => ({ ...current, message: '' }));
   };
 
+  const handleAccessLogin = async (password) => {
+    setAuthPending(true);
+    setAuthFeedback('');
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        cache: 'no-store',
+        body: JSON.stringify({ password }),
+      });
+      if (!response.ok) {
+        let body = null;
+        try { body = await response.json(); } catch { /* Keep the access message generic. */ }
+        setAuthFeedback(body?.error?.message || 'Secure access could not be verified. Try again.');
+        return;
+      }
+      setAuthFeedback('Access verified. Loading the analysis…');
+      setReloadKey((value) => value + 1);
+    } catch {
+      setAuthFeedback('The secure access service could not be reached. Try again.');
+    } finally {
+      setAuthPending(false);
+    }
+  };
+
   if (loadState.status === 'loading') return <LoadingScreen />;
-  if (loadState.status === 'error' || !viewModel) return <ErrorScreen message={loadState.message || 'The local data contract could not be prepared.'} onRetry={() => setReloadKey((value) => value + 1)} />;
+  if (loadState.status === 'error' || !viewModel) return <ErrorScreen message={loadState.message || 'The private data contract could not be prepared.'} code={loadState.code} authPending={authPending} authFeedback={authFeedback} onLogin={handleAccessLogin} onRetry={() => setReloadKey((value) => value + 1)} />;
 
   const slides = snapshot.slides;
   const openPost = (postId) => setDetailSelection({ type: 'post', postId });
@@ -268,7 +299,7 @@ export function App() {
             <PostsTable model={viewModel.postsTable} rows={viewModel.postsTable.rows} selectedIds={selectedPostIds} onSelectionChange={setSelectedPostIds} onOpenPost={openPost} onSort={changeSort} tableFilters={tableFilters} onTableFiltersChange={changeTableFilters} onExcelDownload={handleExcelDownload} downloadState={downloadState} />
             <AnalysisOverview overview={viewModel.analysisOverview} onTabChange={setSelectedOverviewTab} />
           </div>
-          <footer className="dashboard-footer"><span>OHORA Nail Intelligence · Local analysis snapshot</span><span>Dates and filter boundaries use {DISPLAY_TIME_ZONE}</span></footer>
+          <footer className="dashboard-footer"><span>OHORA Nail Intelligence · {viewModel.meta.hosted ? 'Authorized analysis snapshot' : 'Local analysis snapshot'}</span><span>Dates and filter boundaries use {DISPLAY_TIME_ZONE}</span></footer>
         </main>
       </div>
       <DetailsDialog selection={detailSelection} posts={snapshot.posts} slides={slides} onClose={() => setDetailSelection(null)} />

@@ -2,6 +2,12 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ command }) => ({
+  // The managed Windows workspace can deny fs.realpathSync.native while
+  // standard Node stat/read calls succeed. This project has no symlinked
+  // workspace dependencies, so preserving paths keeps Vite's resolver stable.
+  resolve: {
+    preserveSymlinks: true,
+  },
   plugins: [
     react(),
     ...(command === 'serve' ? [createLocalSnapshotPlugin()] : []),

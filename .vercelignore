@@ -1,0 +1,8 @@
+.env*
+data/private/
+data/raw/
+node_modules/
+dist/
+test-results/
+playwright-report/
+playwright/.cache/
