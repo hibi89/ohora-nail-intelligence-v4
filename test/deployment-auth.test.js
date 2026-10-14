@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { brotliCompressSync } from 'node:zlib';
-import { createPasswordHash, createSessionToken, hasValidSession, isSameOriginRequest, sessionCookie, verifyAccessPassword } from '../server/deploymentAuth.js';
+import { createLoginRateLimiter, createPasswordHash, createSessionToken, hasValidSession, isSameOriginRequest, sessionCookie, verifyAccessPassword } from '../server/deploymentAuth.js';
 import { normalizeOhoraV3 } from '../src/data/normalizeOhoraV3.js';
 import { toDashboardPayload } from '../server/localSnapshotApi.js';
 import dashboardHandler from '../api/ohora-dashboard.js';
@@ -134,4 +134,47 @@ test('login rejects requests without a matching browser Origin', () => {
 test('browser login-origin validation rejects cross-site requests', () => {
   assert.equal(isSameOriginRequest({ headers: { origin: 'https://attacker.example', host: 'ohora.example' } }), false);
   assert.equal(isSameOriginRequest({ headers: { origin: 'https://ohora.example', host: 'ohora.example' } }), true);
+});
+
+test('login attempt limiter blocks after five failures, expires after its window, and isolates addresses', () => {
+  const limiter = createLoginRateLimiter({ windowMs: 60_000, maxFailures: 2 });
+  const firstAddress = { ip: '192.0.2.10', headers: {} };
+  const secondAddress = { ip: '192.0.2.11', headers: {} };
+  const now = 1_800_000_000_000;
+
+  limiter.recordFailure(firstAddress, now);
+  limiter.recordFailure(firstAddress, now + 1_000);
+  assert.equal(limiter.check(firstAddress, now + 2_000).allowed, false);
+  assert.equal(limiter.check(secondAddress, now + 2_000).allowed, true);
+  assert.equal(limiter.check(firstAddress, now + 60_001).allowed, true);
+});
+
+test('hosted login returns 429 with Retry-After after five bad access codes', () => {
+  const oldHash = process.env.OHORA_PASSWORD_HASH;
+  const oldSecret = process.env.OHORA_SESSION_SECRET;
+  process.env.OHORA_PASSWORD_HASH = testHash;
+  process.env.OHORA_SESSION_SECRET = testSessionSecret;
+  const ip = `198.51.100.${1 + Math.floor(Math.random() * 200)}`;
+  const request = {
+    method: 'POST',
+    headers: { origin: 'https://ohora.example', host: 'ohora.example', 'x-forwarded-proto': 'https', 'x-forwarded-for': ip },
+    body: { password: 'incorrect-access-code' },
+  };
+  try {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const response = mockResponse();
+      loginHandler(request, response);
+      assert.equal(response.statusCode, 401);
+    }
+    const limited = mockResponse();
+    loginHandler(request, limited);
+    assert.equal(limited.statusCode, 429);
+    assert.match(limited.headers['retry-after'], /^\d+$/);
+    assert.equal(JSON.parse(limited.body).error.code, 'login-rate-limited');
+  } finally {
+    if (oldHash === undefined) delete process.env.OHORA_PASSWORD_HASH;
+    else process.env.OHORA_PASSWORD_HASH = oldHash;
+    if (oldSecret === undefined) delete process.env.OHORA_SESSION_SECRET;
+    else process.env.OHORA_SESSION_SECRET = oldSecret;
+  }
 });

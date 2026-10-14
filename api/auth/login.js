@@ -1,4 +1,4 @@
-import { createSessionToken, isSameOriginRequest, sessionCookie, verifyAccessPassword } from '../../server/deploymentAuth.js';
+import { createSessionToken, isSameOriginRequest, loginRateLimiter, sessionCookie, verifyAccessPassword } from '../../server/deploymentAuth.js';
 
 function json(response, status, body) {
   response.status(status);
@@ -18,6 +18,11 @@ export default function handler(request, response) {
   if (!isSameOriginRequest(request)) {
     return json(response, 403, { error: { code: 'origin-rejected', message: 'This sign-in request was rejected.' } });
   }
+  const rateLimit = loginRateLimiter.check(request);
+  if (!rateLimit.allowed) {
+    response.setHeader('Retry-After', String(rateLimit.retryAfterSeconds));
+    return json(response, 429, { error: { code: 'login-rate-limited', message: 'Too many incorrect attempts. Try again later.' } });
+  }
 
   const password = request.body?.password;
   const passwordHash = process.env.OHORA_PASSWORD_HASH;
@@ -26,9 +31,11 @@ export default function handler(request, response) {
     return json(response, 503, { error: { code: 'auth-unavailable', message: 'Secure access is not configured.' } });
   }
   if (!verifyAccessPassword(password, passwordHash)) {
+    loginRateLimiter.recordFailure(request);
     return json(response, 401, { error: { code: 'invalid-access-code', message: 'The access code is incorrect. Try again.' } });
   }
 
+  loginRateLimiter.clear(request);
   const token = createSessionToken(sessionSecret);
   response.setHeader('Set-Cookie', sessionCookie(token, { secure: true }));
   response.status(204).end();

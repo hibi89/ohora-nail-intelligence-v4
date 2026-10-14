@@ -2,6 +2,67 @@ import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypt
 
 export const SESSION_COOKIE_NAME = 'ohora_session';
 export const SESSION_SECONDS = 8 * 60 * 60;
+export const LOGIN_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+export const LOGIN_LIMIT_MAX_FAILURES = 5;
+
+function clientAddress(request) {
+  if (typeof request.ip === 'string' && request.ip.trim()) return request.ip.trim();
+  const realIp = request.headers?.['x-real-ip'];
+  if (typeof realIp === 'string' && realIp.trim()) return realIp.trim();
+  const forwardedFor = request.headers?.['x-forwarded-for'];
+  if (typeof forwardedFor === 'string' && forwardedFor.trim()) return forwardedFor.split(',')[0].trim();
+  return 'unknown';
+}
+
+export function createLoginRateLimiter({
+  windowMs = LOGIN_LIMIT_WINDOW_MS,
+  maxFailures = LOGIN_LIMIT_MAX_FAILURES,
+  maxEntries = 10_000,
+} = {}) {
+  const failuresByAddress = new Map();
+
+  function prune(now) {
+    for (const [address, entry] of failuresByAddress) {
+      if (now - entry.startedAt >= windowMs) failuresByAddress.delete(address);
+    }
+    while (failuresByAddress.size > maxEntries) {
+      failuresByAddress.delete(failuresByAddress.keys().next().value);
+    }
+  }
+
+  function check(request, now = Date.now()) {
+    prune(now);
+    const entry = failuresByAddress.get(clientAddress(request));
+    if (!entry || entry.failures < maxFailures) return { allowed: true, retryAfterSeconds: 0 };
+    return {
+      allowed: false,
+      retryAfterSeconds: Math.max(1, Math.ceil((entry.startedAt + windowMs - now) / 1000)),
+    };
+  }
+
+  function recordFailure(request, now = Date.now()) {
+    prune(now);
+    const address = clientAddress(request);
+    const entry = failuresByAddress.get(address);
+    if (!entry || now - entry.startedAt >= windowMs) {
+      failuresByAddress.set(address, { startedAt: now, failures: 1 });
+    } else {
+      entry.failures += 1;
+    }
+    prune(now);
+    return check(request, now);
+  }
+
+  function clear(request) {
+    failuresByAddress.delete(clientAddress(request));
+  }
+
+  return { check, recordFailure, clear };
+}
+
+// Best-effort per-function-instance protection. Vercel can scale or restart
+// instances, so use platform WAF rate limiting for a strict global limit.
+export const loginRateLimiter = createLoginRateLimiter();
 
 export function createPasswordHash(password, salt = randomBytes(16)) {
   if (typeof password !== 'string' || password.length < 24) {
