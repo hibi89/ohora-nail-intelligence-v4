@@ -16,7 +16,7 @@ function AnalysisImage({ image, className = '', alt = 'OHORA analyzed nail desig
     return (
       <div className={`analysis-image-fallback ${className}`} aria-label="Source image unavailable in this view">
         <Icon name="camera" size={20} />
-        <span>Source image omitted</span>
+        <span>Source image unavailable</span>
       </div>
     );
   }
@@ -212,7 +212,7 @@ export function PostsTable({ model, rows, selectedIds, onSelectionChange, onOpen
           </tbody>
         </table>
       </div>
-      <div className="table-footer"><span>Showing {visibleRows.length} of {model.totalRows} observations · scroll for more</span><span>{model.meta.publicView ? 'Source text, media, and engagement are omitted' : 'Missing metrics remain blank'}</span></div>
+      <div className="table-footer"><span>Showing {visibleRows.length} of {model.totalRows} observations · scroll for more</span><span>{model.meta.publicView ? 'Matched images shown; source text and engagement omitted' : 'Missing metrics remain blank'}</span></div>
       {downloadState.message && <div className="export-status" role="status" aria-live="polite">{downloadState.message}</div>}
     </section>
   );
@@ -250,7 +250,7 @@ export function DetailsDialog({ selection, posts, slides, onClose, publicView = 
           <div className="dialog-media-column">
             {viewedSlide?.imageUrl
               ? <AnalysisImage image={{ src: viewedSlide.imageUrl }} className="dialog-main-image" alt="Selected analyzed nail design" />
-              : <div className="dialog-image-empty"><Icon name="camera" size={25} /><span>{publicView ? 'Source images are omitted from this public view.' : 'No matched analysis image for this selection.'}</span></div>}
+              : <div className="dialog-image-empty"><Icon name="camera" size={25} /><span>{publicView ? 'No approved matched image is available for this slide.' : 'No matched analysis image for this selection.'}</span></div>}
             {postSlides.length > 1 && postSlides.some((slide) => slide.imageUrl) && <div className="dialog-slide-strip" aria-label="Carousel analyzed slides">
               {postSlides.map((slide) => <button type="button" key={slide.key} className={activeSlide?.key === slide.key ? 'slide-picker is-active' : 'slide-picker'} onClick={() => setActiveIndex(slide.index)} aria-label={`Show slide ${slide.index}`}>
                 <img src={slide.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" /><span>{slide.index}</span>

@@ -35,7 +35,7 @@ function sourcePayload() {
       postId: 'source-post-id-secret',
       index: 0,
       assetId: 'source-asset-id-secret',
-      imageUrl: 'https://cdn.example.invalid/source-image-secret.jpg',
+      imageUrl: 'https://scontent-icn2-1.cdninstagram.com/v/t51.29350-15/slide.jpg?oe=deadbeef&oh=test-signature',
       matchStatus: 'matched',
       isDesignPost: true,
       tags: { color: ['Cherry'], technique: ['Glazed'], texture: [], motif: ['Floral'], season: [], use: ['Daily'] },
@@ -45,12 +45,12 @@ function sourcePayload() {
   };
 }
 
-test('public dashboard projection removes source identifiers, text, media, and per-post metrics', () => {
+test('public dashboard projection includes matched Instagram images but removes source identifiers, text, and per-post metrics', () => {
   const publicData = toPublicDashboardPayload(sourcePayload());
   const serialized = JSON.stringify(publicData);
   for (const sourceOnlyValue of [
     'source-post-id-secret', 'private source caption', 'source-asset-id-secret',
-    'source-image-secret.jpg', 'private source visual evidence', '13.8', '121', '1000',
+    'private source visual evidence', '13.8', '121', '1000',
   ]) assert.equal(serialized.includes(sourceOnlyValue), false);
 
   assert.equal(publicData.meta.publicView, true);
@@ -64,7 +64,8 @@ test('public dashboard projection removes source identifiers, text, media, and p
   assert.equal(publicData.posts[0].likes, null);
   assert.equal(publicData.slides[0].postId, 'observation-001');
   assert.equal(publicData.slides[0].index, 0);
-  assert.equal(publicData.slides[0].imageUrl, null);
+  assert.equal(publicData.slides[0].imageUrl, 'https://scontent-icn2-1.cdninstagram.com/v/t51.29350-15/slide.jpg?oe=deadbeef&oh=test-signature');
+  assert.equal(publicData.slides[0].matchStatus, 'matched');
   assert.equal(publicData.slides[0].assetId, null);
   assert.equal(publicData.slides[0].visualEvidence, null);
   assert.deepEqual(publicData.slides[0].tags.color, ['Cherry']);
@@ -83,7 +84,7 @@ test('Vercel dashboard GET is public but serves only the anonymized allowlist', 
     assert.equal(body.data.posts.length, 1);
     assert.equal(body.data.posts[0].postId, 'observation-001');
     assert.equal(JSON.stringify(body).includes('source-post-id-secret'), false);
-    assert.equal(JSON.stringify(body).includes('source-image-secret'), false);
+    assert.equal(body.data.slides[0].imageUrl.includes('cdninstagram.com'), true);
 
     const wrongMethod = mockResponse();
     dashboardHandler({ method: 'POST', headers: {} }, wrongMethod);
