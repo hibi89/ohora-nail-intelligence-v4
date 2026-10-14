@@ -480,6 +480,7 @@ export function buildDashboardViewModel(model, options = {}) {
       decorativeImageSlot: 'signatureCombinationImage',
     },
     postsTable: {
+      meta: model.meta,
       sort: table.sort,
       rows: postsTable,
       totalRows: postsTable.length,
